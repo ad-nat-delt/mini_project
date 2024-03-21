@@ -65,3 +65,5 @@ for idx in range(events_embeddings.shape[0]):
     scores[:,idx] = cosine_similarity([events_embeddings[idx]],transcribe_embeddings)[0]
 
 print(scores)
+
+print("done")
