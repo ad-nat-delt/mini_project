@@ -1,137 +1,112 @@
 import instructor
-import openai
-from pydantic import BaseModel, Field, ValidationError
-from typing import List, Literal
-import json
-import os
+from pydantic import BaseModel, Field
+from typing import List
+from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
-from cal import run
+import os
 from datetime import datetime, date, timedelta
+import json
+from cal import run
 
-today = date.today()
-now = datetime.now()
-time_details = now.strftime("%H:%M:%S")
+def get_all():
+    today = date.today()
+    now = datetime.now()
 
-load_dotenv(find_dotenv())
-api_key = os.getenv("OPENAI_API_KEY")
+    hour = (now.hour + 1) % 24  # Using modulo operator to ensure hour stays within 0-23 range
+    time_details = f"{hour:02}:00:00"  # Ensuring two-digit format for hour
+    print(time_details)
 
-instructor_openai_client = instructor.patch(openai.Client(
-    api_key=api_key,
-    timeout=20000,
-    max_retries=3
-))
+    print("Today's date:", today)   
+    print("Current time:", time_details)
 
-date_details = date.today().strftime("%B %d, %Y")
-w = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-day = w[date.today().weekday()]
+    # Define your desired output structure
+    class UserInfo(BaseModel):
+        name: str
+        age: int
 
-class TimeExtract(BaseModel):
-    date: str = Field(default=f"{today}", description=f"The date of the event if present in the text. It should be derived from phrases like 'next Monday', 'this Friday', etc. Current date is {today}. Return in YYYY-MM-DD format.")
-    start_time: str = Field(default=f"{time_details}", description=f"The start time of the event if present. Change to %H%H:%M%M:%S%S . Current time is {time_details}")
-    end_time: str = Field(default="NULL", description="The end time of the event.Change to %H%H:%M%M:%S%S")
 
-class TaskDetails(BaseModel):
-    day: Literal['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'NULL'] = Field(default="NULL", description="The day of the event if present in the summary.")
-    event: str = Field(default="NULL", description="Title or summary of the event.")
-    current_day: Literal['Yes', 'No'] = Field(default="No", description="The current day mentioned in the conversation.")
-    successive_day: Literal['Yes', 'No'] = Field(default="No", description="The successive day mentioned in the conversation.")
-    timeline: TimeExtract = Field(default=None, description="The time-related details of the event.")
+    # Load your OpenAI API key from a .env file
+    load_dotenv(find_dotenv())
+    api_key = os.getenv("OPENAI_API_KEY")
 
-class MultipleTaskData(BaseModel):
-    tasks: List[TaskDetails]
+    # Patch the OpenAI client
+    client = instructor.from_openai(OpenAI(
+        api_key=api_key,
+        timeout=20000,
+        max_retries=3
+    ))
 
-def extract_event_details(conversation_summary: str) -> MultipleTaskData:
-    completion = instructor_openai_client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "user", "content": f"Please convert the following information into valid JSON representing the event details: {conversation_summary} specifically for assigning each task to google calender api."}
-        ],
-        response_model=MultipleTaskData
+    file = open('../summ_api/summary.txt', 'r')
+    summary = file.read()
+    file.close()
+    summary = f"""
+    Current date {today}, current time {time_details}
+    {summary}
+    """
+
+    if "morning" in summary.lower():
+        summary = summary.replace("morning", "08:00:00")
+    if "noon" in summary.lower():
+        summary = summary.replace("noon", "12:00:00")
+    if "evening" in summary.lower():
+        summary = summary.replace("evening", "16:00:00")
+    if "today" in summary:
+        summary = summary.replace("today", str(today))
+    if "tomorrow" in summary:
+        tmmr =  str(date.today() + timedelta(days=1))
+        summary = summary.replace("tomorrow", tmmr )
+
+
+    class TimeV(BaseModel):
+        hours: str = Field(default= str(hour), description="Hour of the event (24-hour format) 00,01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21,22,23")
+        minutes: str = Field(default= "00", description="Minutes of the event round to nearest 5 multiple")
+        seconds: str = Field(default= "00", description="Return 00")
+
+
+    default_time = TimeV(hours= f"{hour:02}", minutes="00", seconds="00")
+
+    class TimeDetails(BaseModel):
+        date: str = Field(default= today, description="Date of the event") 
+        start_time: TimeV = Field(default= default_time, description="Start time of the event")
+        end_time: TimeV = Field(default= default_time, description="End time of the event")
+
+    class TaskDetails(BaseModel):
+        eventname: str = Field(default="Event", description="Title or summary of the event")
+        timeline: TimeDetails = Field(default= None, description="Date and time details")
+
+    class MultipleTaskData(BaseModel):
+        tasks: List[TaskDetails]
+
+    # Extract structured data from natural language
+    user_info = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        response_model=MultipleTaskData,
+        messages=[{"role": "user", "content": f"Please convert the following information into valid JSON representing the event details: {summary} specifically for assigning each task to google calender api."}],
     )
+    # print(json.dumps(user_info.model_dump(), indent=1))
 
-    try:
-        multiple_task_data = MultipleTaskData(**completion.model_dump())
-        return multiple_task_data
-    except ValidationError as e:
-        print(f"Error extracting event details: {e}")
-        return None
-
-# Example usage
-conversation_summary = """
-A meeting is to be held on Monday at 10:00 AM. The meeting will be about the new project.
-There's a project deadline with a friend by this evening, requiring immediate attention to send out an email.
-Furthermore, a dentist appointment needs scheduling for the this Friday.
-Amid this, there's also a pressing task to complete algorithm analysis assignments by next Tuesday, ahead of an exam scheduled for Monday.
-"""
-
-if "evening" in conversation_summary.lower():
-    conversation_summary = conversation_summary.replace("evening", "by 4:00 PM")
-if "today" in conversation_summary:
-    conversation_summary = conversation_summary.replace("today", today)
-if "tomorrow" in conversation_summary:
-    conversation_summary = conversation_summary.replace("tomorrow", today + timedelta(days=1))
-
-if "morning" in conversation_summary.lower():
-    conversation_summary = conversation_summary.replace("morning", "by 8:00 AM")
-
-if "noon" in conversation_summary.lower():
-    conversation_summary = conversation_summary.replace("noon", "by 12:00 PM")
-
-
-
-file = open("files/schedule.txt", "r")
-summary = file.read()
-file.close()
-
-conversation_summary = f"""
-Current details:{time_details}, {date_details}, {day}
-{summary}
-"""
-
-multiple_task_data = extract_event_details(conversation_summary)
-
-if multiple_task_data:
-    print(json.dumps(multiple_task_data.dict(), indent=2))
-    tasks = multiple_task_data.dict()["tasks"]
-    print(tasks)
-    print(len(tasks))
+    tasks = user_info.dict()["tasks"]
 
     for task in tasks:
-        if task["timeline"]["date"] == "NULL":
-            task["timeline"]["date"] = today
-        if task["timeline"]["start_time"] == "NULL":
-            task["timeline"]["start_time"] = time_details
-        if task["timeline"]["end_time"] == "NULL":
-            task["timeline"]["end_time"] = (
-                datetime.strptime(task["timeline"]["start_time"], "%H:%M:%S")
-                + timedelta(hours=1)
-            ).strftime("%H:%M:%S")
-        date = (task["timeline"]["date"])
-        print(date)
-        print(task["event"])
-        print(task["timeline"]["start_time"])
-        print(task["timeline"]["end_time"])
-        parsed_date = datetime.fromisoformat(date)
+        if task["timeline"]["start_time"]["hours"] == task["timeline"]["end_time"]["hours"] and task["timeline"]["start_time"]["minutes"] == task["timeline"]["end_time"]["minutes"] :
+            task["timeline"]["end_time"]["minutes"] = "30"
+        if int(task["timeline"]["start_time"]["hours"]) > int(task["timeline"]["end_time"]["hours"]):
+            task["timeline"]["end_time"]["hours"] = str(int(task["timeline"]["start_time"]["hours"]))
+            task["timeline"]["end_time"]["minutes"] = "30"
+        if int(task["timeline"]["start_time"]["hours"]) == int(task["timeline"]["end_time"]["hours"]) and int(task["timeline"]["start_time"]["minutes"]) > int(task["timeline"]["end_time"]["minutes"]):
+            task["timeline"]["start_time"]["minutes"] = "00"
+            task["timeline"]["end_time"]["minutes"] = "30"
+        print("Event name:", task["eventname"])
+        event_name = task["eventname"]
+        print("Date:", task["timeline"]["date"])
+        date = task["timeline"]["date"]
+        print("Start time: ",task["timeline"]["start_time"]["hours"]+":"+task["timeline"]["start_time"]["minutes"]+":"+task["timeline"]["start_time"]["seconds"])
+        start_time = task["timeline"]["start_time"]["hours"]+":"+task["timeline"]["start_time"]["minutes"]+":"+task["timeline"]["start_time"]["seconds"]
+        print("End time: ",task["timeline"]["end_time"]["hours"]+":"+task["timeline"]["end_time"]["minutes"]+":"+task["timeline"]["end_time"]["seconds"])
+        end_time = task["timeline"]["end_time"]["hours"]+":"+task["timeline"]["end_time"]["minutes"]+":"+task["timeline"]["end_time"]["seconds"]
+        print("\n")
+        
 
-        start_time = (task["timeline"]["start_time"])
-        end_time = (task["timeline"]["end_time"])
-
-        parsed_start = datetime.strptime(start_time, "%H:%M:%S")
-
-        # Combine the time and date
-        combined_datetime_start = datetime(parsed_date.year, parsed_date.month, parsed_date.day, parsed_start.hour, parsed_start.minute, parsed_start.second)
-
-        # Convert to ISO format
-        start_time = combined_datetime_start.isoformat()
-
-        parsed_end = datetime.strptime(end_time, "%H:%M:%S")
-
-        # Combine the time and date
-        combined_datetime_end = datetime(parsed_date.year, parsed_date.month, parsed_date.day, parsed_end.hour, parsed_end.minute, parsed_end.second)
-
-        # Convert to ISO format
-        end_time = combined_datetime_end.isoformat()
-
-        run(summary=task["event"], start_time=start_time, end_time=end_time)
-else:
-    print("Failed to extract event details.")
+        run(summary=event_name, start_time=f"{date}T{start_time}", end_time=f"{date}T{end_time}", description="Automated by ...")
+    msg = "Event creation completed."
+    return tasks, msg
