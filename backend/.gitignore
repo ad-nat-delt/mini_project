@@ -1,0 +1,7 @@
+env
+event_extraction/.env
+event_extraction/credentials.json
+event_extraction/token.json
+event_extraction/__pycache__
+summ_api/__pycache__
+__pycache__

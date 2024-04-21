@@ -1,0 +1,86 @@
+
+{% extends 'base.html' %}
+ 
+{% block body %}
+
+{{ message }}
+ 
+
+
+    <h1>Record and Replay Audio</h1>
+    <button id="recordButton">Record</button>
+    <button id="stopButton" disabled>Stop</button>
+    <button id="playButton" disabled>Play</button>
+    
+    <audio id="audioPlayer" controls></audio>
+
+    <form id="audioForm" method="POST" action="/event" >
+        <input type="hidden" id="audioData" name="audio">
+        <button type="submit" id="saveButton">Event</button>
+    </form>
+    <form id="audioForm" method="POST" action="/summarize" >
+        <input type="hidden" id="audioData" name="audio">
+        <button type="submit" id="saveButton">Summary</button>
+    </form>
+    
+
+    <script>
+        let recorder;
+        let audioPlayer = document.getElementById('audioPlayer');
+        let recordButton = document.getElementById('recordButton');
+        let stopButton = document.getElementById('stopButton');
+        let playButton = document.getElementById('playButton');
+        let audioForm = document.getElementById('audioForm');
+        let audioDataInput = document.getElementById('audioData');
+
+        recordButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+        playButton.addEventListener('click', playRecording);
+
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            recorder = new MediaRecorder(stream);
+            const chunks = [];
+
+            recorder.ondataavailable = event => {
+                chunks.push(event.data);
+            };
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'audio/wav'  });
+                const audioURL = URL.createObjectURL(blob);
+                audioPlayer.src = audioURL;
+                playButton.disabled = false;
+                audioDataInput.value = audioURL;
+                audioForm.style.display = 'block';
+            };
+
+            recordButton.disabled = true;
+            stopButton.disabled = false;
+
+            recorder.start();
+        }
+
+        function stopRecording() {
+            recorder.stop();
+            recordButton.disabled = false;
+            stopButton.disabled = true;
+        }
+
+        function playRecording() {
+            audioPlayer.play();
+        }
+    </script>
+
+
+
+
+
+
+
+
+
+
+
+ 
+{% endblock %}
