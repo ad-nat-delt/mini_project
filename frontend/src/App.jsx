@@ -174,10 +174,13 @@
 
 
 // export default App;
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import './App.css';
 
 function App() {
+  const [permission,setPermission] = useState(false);
+  const [stream, setStream] = useState(null);
+
   const [audioFile, setAudioFile] = useState(null);
   const [summary, setSummary] = useState('');
   const [tasks, setTasks] = useState([]);
@@ -185,6 +188,23 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [summaryv, setSummaryv] = useState(false);
   const [eventv, seteventv] = useState(false);
+
+  const getMicrophone = async () => {
+    if("MediaRecorder" in window){
+      console.log("MediaRecorder available");
+      try{
+        const streamData = await navigator.mediaDevices.getUserMedia({audio: true});
+        setStream(streamData);
+        setPermission(true);
+      }
+      catch(err){
+        console.log(err);
+        alert("Microphone permission denied");
+      }
+    }else{
+      alert("MediaRecorder not available");
+    }
+  };
 
   const handleSummarize = () => {
     setLoading(true);
@@ -234,9 +254,25 @@ function App() {
   };
 
   return (
-    <div className="App">
-      <h1>Audio Processing</h1>
+    <>
+    <h1>Audio Processing</h1>
+
+    <div className="App" style={{ flexDirection: 'column', height: '30vh'}}>
+  
+      <div style={{display: 'flex'}}>
+      <div className="audio-controls">
+                    {!permission ? (
+                        <button onClick={getMicrophone} type="button" style={{marginRight: '2rem'}}> 
+                            Test Mic
+                        </button>
+                    ): null}
+                    {permission ? (
+                          <button onClick={getMicrophone} type="button" style={{marginRight: '3rem'}}> Record
+                          </button>
+                    ): null}
+                </div>
       <input type="file" onChange={(e) => setAudioFile(e.target.files[0])} />
+      </div>
       <div>
         <button className='button' onClick={handleSummarize}>Summarize</button>
         <button className='button' onClick={handleEventExtraction}>Extract Events</button>
@@ -271,6 +307,7 @@ function App() {
         </div>
       )}
     </div>
+    </>
   );
 }
 
