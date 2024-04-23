@@ -86,6 +86,7 @@ def get_all():
     # print(json.dumps(user_info.model_dump(), indent=1))
 
     tasks = user_info.dict()["tasks"]
+    t_task = dict()
 
     for task in tasks:
         if task["timeline"]["start_time"]["hours"] == task["timeline"]["end_time"]["hours"] and task["timeline"]["start_time"]["minutes"] == task["timeline"]["end_time"]["minutes"] :
@@ -105,6 +106,8 @@ def get_all():
         print("End time: ",task["timeline"]["end_time"]["hours"]+":"+task["timeline"]["end_time"]["minutes"]+":"+task["timeline"]["end_time"]["seconds"])
         end_time = task["timeline"]["end_time"]["hours"]+":"+task["timeline"]["end_time"]["minutes"]+":"+task["timeline"]["end_time"]["seconds"]
         print("\n")
+        # t_task[event_name] = {"date": date, "start_time": start_time, "end_time": end_time}
+
         
 
         run(summary=event_name, start_time=f"{date}T{start_time}", end_time=f"{date}T{end_time}", description="Automated by ...")

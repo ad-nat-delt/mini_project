@@ -2,8 +2,10 @@ from speechmatics.models import ConnectionSettings
 from speechmatics.batch_client import BatchClient
 from httpx import HTTPStatusError
 
+import os 
 def summary():
-    API_KEY = "8xjmuCBuXFsYlI88d8lq7GD0gdu5JUmk"
+    API_KEY = "A7jzIMDAZLILDP6KqgwE351Pc9Gutm7R"
+    
     PATH_TO_FILE = "summ_api/audio.wav"
     LANGUAGE = "en" # Transcription language
     fd=open("summ_api/summary.txt","w+")
@@ -42,11 +44,12 @@ def summary():
             if e.response.status_code == 401:
                 return 'Invalid API key - Check your API_KEY at the top of the code!'
             elif e.response.status_code == 400:
-                return f"{e.response.json()['detail']}"
+                print(f"Error: {e.response.json()['error'   ]}")
+                return f"{e.response.json()}"
             else:
                 raise e
             return "Error occurred while processing the audio file. Please try again."
     fd.flush()
     fd.close()
 
-summary()
+# summary()

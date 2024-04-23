@@ -37,8 +37,19 @@
   cursor: pointer;
   
 }
+.button_g {
+  background-color: gray;
+  padding: 15px 25px;
+  margin:10px;
+  border-radius: 0px;
+  margin-top: 20px;
+  cursor: pointer;
 
+}
 
 .button:hover {
-  border: white;
+  border-color: white;
+}
+.button_g:hover {
+  border-color: black;
 }
