@@ -16,7 +16,7 @@ def load_models():
    global transcriptionmodel, diarizationmodel
    global device
    print("loading models..")
-   access_token = "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"
+   access_token = "auth_token_here"
    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
    transcriptionmodel= whisper.load_model('small.en', device = device)
    diarizationmodel = Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token=access_token)
