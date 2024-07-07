@@ -7,6 +7,11 @@ from speechmatics.models import ConnectionSettings
 from speechmatics.batch_client import BatchClient
 from httpx import HTTPStatusError
 
+import datetime
+import os.path
+from cal import run
+
+
 import instructor
 from pydantic import BaseModel, Field
 from typing import List
@@ -190,35 +195,20 @@ def events():
         return jsonify(message=msg)
 
 @api.route('/addevent', methods=['POST'])
-def add_event_to_calendar():
+def addevent():
     try:
-        # Parse JSON data from request body
         data = request.get_json()
-        
-        # Example structure for event data
-        class EventData(BaseModel):
-            eventname: str
-            date: str
-            start_time: str
-            end_time: str
+        event_name = data["eventname"]
+        date = data["date"]
+        start_time = data["start_time"]
+        end_time = data["end_time"]
 
-        # Validate and parse event data
-        event_data = EventData(**data)
-        event_name = event_data.eventname
-        event_date = event_data.date
-        event_start_time = event_data.start_time
-        event_end_time = event_data.end_time
-
-        
-        # Here you would integrate with your calendar API to add the event
-        # Example pseudo-code (replace with actual calendar API integration):
-        # calendar_api.add_event(event_name, event_date, event_start_time, event_end_time)
-
-        msg = f"Event '{event_name}' added to calendar."
-        return jsonify(message=msg, event_name=event_name, event_date=event_date, event_start_time=event_start_time, event_end_time=event_end_time)
+        run(summary=event_name, start_time=f"{date}T{start_time}", end_time=f"{date}T{end_time}", description="Automated by ...")
+        return jsonify(message="Event added to calendar")
 
     except Exception as e:
-        return jsonify(message="Error adding event to calendar", error=str(e))
+        print(f"Error: {e}")
+        return jsonify(message="Error adding event to calendar", error=str(e)), 500
 
 if __name__ == "__main__":
     api.run(debug=True, port=5000)
