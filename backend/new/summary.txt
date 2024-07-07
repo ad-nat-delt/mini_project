@@ -1,2 +1,2 @@
 - Speechmatics offers speech to text software.
-- Users must create an API key to submit transcription requests.
+- Users can start by creating an API key and submitting a transcription request to the Speechmatics API.

@@ -6,7 +6,7 @@ from dotenv import load_dotenv, find_dotenv
 import os
 import datetime 
 import json
-from event_extraction.cal import run
+from new.cal import run
 
 def get_all():
     current = datetime.date.today()

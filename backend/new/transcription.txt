@@ -1,0 +1,1 @@
+Welcome to Speechmatics. We're delighted that you've decided to try our speech to text software. To get going, just create an API key and submit a transcription request to our API. We hope you'll be very impressed by the results. Thank you.

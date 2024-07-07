@@ -1,32 +1,23 @@
 import flask
 import os
-from flask import jsonify
-from flask import request
-
+from flask import jsonify, request
+from flask_cors import CORS
 from speechmatics.models import ConnectionSettings
 from speechmatics.batch_client import BatchClient
 from httpx import HTTPStatusError
-
-import datetime
-import os.path
-from cal import run
-
-
-import instructor
-from pydantic import BaseModel, Field
-from typing import List
-from openai import OpenAI
-import datetime
+from datetime import datetime, timedelta, date
 from werkzeug.utils import secure_filename
+
 from pydub import AudioSegment
 from pyannote.audio import Pipeline
 import torch
-import pandas as pd
 import json
 import whisper  # Assuming this is a module you use for transcription
-import time
-from flask_cors import CORS
 
+from pydantic import BaseModel, Field
+from typing import List
+import instructor
+from openai import OpenAI
 
 # Global variables for models and device
 transcriptionmodel = None
@@ -34,70 +25,74 @@ diarizationmodel = None
 device = None
 
 api = flask.Flask(__name__)
-
 CORS(api, resources={r"/*": {"origins": "*"}})
-
 
 @api.route('/')
 def index():
     return jsonify(message="Index page", page="index")
 
-
 # Function to load models
 def load_models():
     global transcriptionmodel, diarizationmodel, device
-    print("Loading models...")
-    access_token = "auth_token_here"  # Replace with your access token if applicable
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    transcriptionmodel = whisper.load_model('small.en', device=device)
-    diarizationmodel = Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token=access_token)
-    diarizationmodel.to(device)
+    try:
+        print("Loading models...")
+        access_token = os.getenv('AUTH_TOKEN', 'auth_token_here')  # Replace with your access token if applicable
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        transcriptionmodel = whisper.load_model('small.en', device=device)
+        diarizationmodel = Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token=access_token)
+    except Exception as e:
+        print(f"Error loading models: {e}")
+        raise
 
 # Function to transcribe and diarize audio
 def transcribe_and_diarize(audio_path):
-    # Prepend spacer since pyannote misses the first 0.5 seconds of audio
-    spacer_milliseconds = 500
-    spacer = AudioSegment.silent(duration=spacer_milliseconds)
-    audio = AudioSegment.from_file(audio_path, format='wav')
-    audio_with_spacer = spacer + audio
-    audio_with_spacer.export('input.wav', format='wav')
+    try:
+        # Prepend spacer since pyannote misses the first 0.5 seconds of audio
+        spacer_milliseconds = 500
+        spacer = AudioSegment.silent(duration=spacer_milliseconds)
+        audio = AudioSegment.from_file(audio_path, format='wav')
+        audio_with_spacer = spacer + audio
+        audio_with_spacer.export('input.wav', format='wav')
 
-    # Diarization
-    print("Diarizing...")
-    diarized = diarizationmodel('input.wav')
+        # Diarization
+        print("Diarizing...")
+        diarized = diarizationmodel('input.wav')
 
-    # Formatting diarization results
-    print("Formatting...")
-    segment_info_list = []
-    for speech_turn, track, speaker in diarized.itertracks(yield_label=True):
-        segment_info = {
-            "start": speech_turn.start,
-            "end": speech_turn.end,
-            "speaker": str(speaker)  # Ensure speaker is converted to string
+        # Formatting diarization results
+        print("Formatting...")
+        segment_info_list = []
+        for speech_turn, track, speaker in diarized.itertracks(yield_label=True):
+            segment_info = {
+                "start": speech_turn.start,
+                "end": speech_turn.end,
+                "speaker": str(speaker)  # Ensure speaker is converted to string
+            }
+            segment_info_list.append(segment_info)
+
+        # Transcription
+        print("Transcribing...")
+        transcript_results = []
+        for idx, segment_info in enumerate(segment_info_list):
+            start_ms = int(segment_info['start'] * 1000)
+            end_ms = int(segment_info['end'] * 1000)
+            segment_audio = audio[start_ms:end_ms]
+            segment_audio.export(f'{idx}.wav', format='wav')
+            result = transcriptionmodel.transcribe(audio=f'{idx}.wav', language='en', word_timestamps=True)
+            transcript_results.append({
+                "speaker": segment_info['speaker'],
+                "transcript": result['text']
+            })
+
+        # Prepare final result
+        result = {
+            "speaker_num": len(diarized.get_timeline().tracks),
+            "transcript": transcript_results
         }
-        segment_info_list.append(segment_info)
 
-    # Transcription
-    print("Transcribing...")
-    transcript_results = []
-    for idx, segment_info in enumerate(segment_info_list):
-        start_ms = int(segment_info['start'] * 1000)
-        end_ms = int(segment_info['end'] * 1000)
-        segment_audio = audio[start_ms:end_ms]
-        segment_audio.export(f'{idx}.wav', format='wav')
-        result = transcriptionmodel.transcribe(audio=f'{idx}.wav', language='en', word_timestamps=True)
-        transcript_results.append({
-            "speaker": segment_info['speaker'],
-            "transcript": result['text']
-        })
-
-    # Prepare final result
-    result = {
-        "speaker_num": len(diarized.get_timeline().tracks),
-        "transcript": transcript_results
-    }
-
-    return result
+        return result
+    except Exception as e:
+        print(f"Error in transcribe_and_diarize: {e}")
+        raise
 
 # Route for uploading audio file and processing
 @api.route('/upload', methods=['POST'])
@@ -119,6 +114,67 @@ def upload_file():
             return jsonify(result=result), 200
         except Exception as e:
             return jsonify(message=f"Error processing file: {str(e)}"), 500
+
+@api.route('/transcribe', methods=['POST'])
+def transcribe():
+    try:
+        AUTH_TOKEN = os.getenv('SPEECH_API')
+        
+        # Check if file is present in the request
+        if 'file' not in request.files:
+            return jsonify(message="No file part")
+
+        file = request.files['file']
+        
+        # Check if the file is empty
+        if file.filename == '':
+            return jsonify(message="No selected file")
+
+        audio = file.read()
+        audio_name = file.filename
+        
+        # save the audio file
+        with open(audio_name, 'wb') as f:
+            f.write(audio)
+        
+        path = os.path.abspath(audio_name)
+        LANGUAGE = 'en'
+        
+        settings = ConnectionSettings(
+            url='https://asr.api.speechmatics.com/v2',
+            auth_token=AUTH_TOKEN,
+        )
+
+        conf = {
+            "type": "transcription",
+            "transcription_config": {
+                "language": LANGUAGE,
+                "enable_entities": True,
+            },
+        }
+
+        with BatchClient(settings) as client:
+            try:
+                job_id = client.submit_job(audio=path, transcription_config=conf)
+                print(f'Job ID: {job_id}')
+
+                transcript = client.wait_for_completion(job_id, transcription_format='txt')
+                
+                # save it in a file transcript.txt
+                with open('transcription.txt', 'w') as f:
+                    f.write(transcript)
+                return jsonify(transcript=transcript)
+            
+            except HTTPStatusError as e:
+                print(f'HTTPStatusError: {e}')
+                return jsonify(message="Error", error=str(e))
+            
+            except Exception as e:
+                print(f'Error: {e}')
+                return jsonify(message="Error", error=str(e))
+    
+    except Exception as e:
+        return jsonify(message="Error", error=str(e))
 
 @api.route('/summarize', methods=['POST'])
 def summarize():
