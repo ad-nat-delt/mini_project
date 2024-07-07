@@ -1,2 +1,3 @@
-- Speechmatics offers speech to text software.
-- Users can start by creating an API key and submitting a transcription request to the Speechmatics API.
+- Sarah inquired about the cost of a one-hour massage at Marina Spa, which is $99.
+- Marina Spa offers a special for a one-hour couples massage at $89.
+- Sarah booked a couples massage appointment for Friday at 11 a.m. under the name Sarah Abdul.

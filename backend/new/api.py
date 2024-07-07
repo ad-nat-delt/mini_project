@@ -5,9 +5,9 @@ from flask_cors import CORS
 from speechmatics.models import ConnectionSettings
 from speechmatics.batch_client import BatchClient
 from httpx import HTTPStatusError
-from datetime import datetime, timedelta, date
+from datetime import datetime
 from werkzeug.utils import secure_filename
-
+import datetime
 from pydub import AudioSegment
 from pyannote.audio import Pipeline
 import torch
@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 from typing import List
 import instructor
 from openai import OpenAI
+
+from cal import run
 
 # Global variables for models and device
 transcriptionmodel = None
@@ -149,8 +151,12 @@ def transcribe():
             "type": "transcription",
             "transcription_config": {
                 "language": LANGUAGE,
-                "enable_entities": True,
+                 "diarization": "speaker",
+                "speaker_diarization_config": {
+                "speaker_sensitivity": 0.6
+                }
             },
+
         }
 
         with BatchClient(settings) as client:
@@ -158,11 +164,11 @@ def transcribe():
                 job_id = client.submit_job(audio=path, transcription_config=conf)
                 print(f'Job ID: {job_id}')
 
-                transcript = client.wait_for_completion(job_id, transcription_format='txt')
+                transcript = client.wait_for_completion(job_id, transcription_format='json-v2')
                 
                 # save it in a file transcript.txt
                 with open('transcription.txt', 'w') as f:
-                    f.write(transcript)
+                    f.write(str(transcript))
                 return jsonify(transcript=transcript)
             
             except HTTPStatusError as e:
@@ -240,8 +246,8 @@ def summarize():
 # get the events from summary 
 @api.route('/events', methods=['GET'])
 def events():
-    current = datetime.date.today()
     now = datetime.datetime.now()
+    current = str(datetime.date.today())
 
     hour = (now.hour + 1) % 24  # Using modulo operator to ensure hour stays within 0-23 range
     time_details = f"{hour:02}:00:00"  # Ensuring two-digit format for hour
@@ -261,13 +267,17 @@ def events():
     client = instructor.from_openai(OpenAI(
         api_key=api_key,
         timeout=20000,
-        max_retries=3
+        max_retries=2
     ))
 
     file = open('summary.txt', 'r')
     summary = file.read()
     file.close()
     summary = f"""
+    Extract the events from the summary below 
+    get time and date relative of the current details 
+    please dont give unwanted details , just if any events scheduled 
+    if none dont return anything , make sure the time is right 
     Current date {current}, current time {time_details}
     {summary}
     """
@@ -281,7 +291,7 @@ def events():
     if "today" in summary:
         summary = summary.replace("today", str(current))
     if "tomorrow" in summary:
-        tmmr =  str(datetime.date.today() + datetime.timedelta(days=1))
+        tmmr =  str(date.today() + datetime.timedelta(days=1))
         summary = summary.replace("tomorrow", tmmr )
 
 
@@ -295,8 +305,8 @@ def events():
 
     class TimeDetails(BaseModel):
         date: str = Field(default= current, description="Date of the event") 
-        start_time: TimeV = Field(default= default_time, description="Start time of the event")
-        end_time: TimeV = Field(default= default_time, description="End time of the event")
+        start_time: TimeV = Field(default= default_time, description="Start time of the event, round to nearest 5 multiple")
+        end_time: TimeV = Field(default= default_time, description="End time of the event round to nearest 5 multiple")
 
     class TaskDetails(BaseModel):
         eventname: str = Field(default="Event", description="Title or summary of the event")
@@ -307,7 +317,7 @@ def events():
 
     # Extract structured data from natural language
     user_info = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         response_model=MultipleTaskData,
         messages=[{"role": "user", "content": f"Please convert the following information into valid JSON representing the event details: {summary} specifically for assigning each task to google calender api."}],
     )
@@ -345,13 +355,14 @@ def events():
 def addevent():
     try:
         data = request.get_json()
+        print(data)
         event_name = data["eventname"]
         date = data["date"]
         start_time = data["start_time"]
         end_time = data["end_time"]
 
         run(summary=event_name, start_time=f"{date}T{start_time}", end_time=f"{date}T{end_time}", description="Automated by ...")
-        return jsonify(message="Event added to calendar")
+        return jsonify( data=data,message="Event added to calendar")
 
     except Exception as e:
         print(f"Error: {e}")
